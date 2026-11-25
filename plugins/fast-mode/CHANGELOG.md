@@ -1,6 +1,6 @@
-# @pi-plugins/fast-mode
+# pi-fast
 
-## 0.1.17-shallow.0
+## 0.2.0
 
 - Add auto/manual session modes and glob-based model whitelists and blacklists.
 - Publish the Fast indicator as an oh-my-line footer segment.

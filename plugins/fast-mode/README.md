@@ -1,4 +1,4 @@
-# `@pi-plugins/fast-mode`
+# `pi-fast`
 
 Request priority inference for selected models in
 [pi](https://github.com/earendil-works/pi), automatically by model or with a manual
@@ -12,7 +12,7 @@ commands.
 
 ```bash
 corepack pnpm install --frozen-lockfile
-corepack pnpm --filter @pi-plugins/fast-mode build
+corepack pnpm --filter pi-fast build
 pi remove npm:@pi-plugins/fast-mode@0.1.16 # only if installed at this pin
 pi install "$PWD/plugins/fast-mode"
 ```
