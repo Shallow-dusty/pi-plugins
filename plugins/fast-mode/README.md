@@ -21,11 +21,17 @@ Run `/reload` in an existing Pi session.
 
 ## Usage
 
-Use `/fast` to control fast mode for the current session:
+Use `/fast` to open the Pi overlay. It shows the current model, Fast decision,
+matching rule and startup mode. Press `Space` to toggle Fast for the session, `m` to
+switch auto/manual, `w` or `b` to edit the whitelist or blacklist, and `q` or `Esc`
+to close. The list editor saves one glob per line to `extensions/fast-mode.json`,
+with a backup of the previous file. Session mode and the manual switch are not
+persisted by the panel.
 
 | Command        | Action                                                                    |
 | -------------- | ------------------------------------------------------------------------- |
-| `/fast`        | Flip the current policy decision and switch to manual mode.               |
+| `/fast`        | Open the panel (show status outside the TUI).                             |
+| `/fast toggle` | Flip the current policy decision and switch to manual mode.               |
 | `/fast on`     | Switch to manual mode, on.                                                |
 | `/fast off`    | Switch to manual mode, off.                                               |
 | `/fast auto`   | Follow the configured lists as you switch models.                         |

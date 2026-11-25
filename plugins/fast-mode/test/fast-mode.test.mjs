@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { visibleWidth } from '@earendil-works/pi-tui'
 import fastMode from '../dist/index.mjs'
 
 const segmentsKey = Symbol.for('oh-my-line.segments.v1')
@@ -81,6 +82,8 @@ async function start(t, settings, { flag = false, line = true } = {}) {
   await events.get('session_start')({}, ctx)
 
   return {
+    ctx,
+    dir,
     segments,
     statuses,
     notes,
@@ -116,7 +119,7 @@ test('auto follows the model, with blacklist taking precedence and Fast clearing
 
 test('manual overrides auto rules for the session and can return to auto', async (t) => {
   const fast = await start(t, { ...config, mode: 'auto' })
-  await fast.command('')
+  await fast.command('toggle')
   assert.equal(fast.request(), undefined)
   fast.select(luna)
   await fast.command('on')
@@ -168,4 +171,71 @@ test('--fast selects manual on, and showStatus hides both indicators', async (t)
   assert.equal(fast.request()?.service_tier, 'priority')
   assert.equal(fast.statuses.size, 0)
   assert.equal(fast.segments.size, 0)
+})
+
+test('/fast opens the panel, toggles modes, and backs up saved rules', async (t) => {
+  const original = { ...config, mode: 'auto', unknownSetting: 'preserved' }
+  const fast = await start(t, original)
+  const keys = [[' ', 'm', 'w'], ['b'], ['q']]
+  const renderFrames = []
+  const themed = { fg: (_role, text) => text, bold: (text) => text }
+  const editors = []
+  fast.ctx.mode = 'tui'
+  fast.ctx.ui.custom = async (factory, options) => {
+    assert.equal(options.overlay, true)
+    let result
+    let closed = false
+    const component = factory(
+      { requestRender: () => {} },
+      themed,
+      { matches: () => false },
+      (value) => {
+        closed = true
+        result = value
+      },
+    )
+    for (const key of keys.shift()) {
+      const rows = component.render(62)
+      assert.equal(
+        rows.every((row) => visibleWidth(row) === 62),
+        true,
+      )
+      renderFrames.push(rows.join('\n'))
+      component.handleInput(key)
+    }
+    assert.equal(closed, true)
+    return result
+  }
+  fast.ctx.ui.editor = async (title, prefilled) => {
+    editors.push({ title, prefilled })
+    return editors.length === 1
+      ? ' openai-codex/gpt-6-* \nopenai-codex/gpt-6-*\n'
+      : undefined
+  }
+
+  await fast.command('')
+  assert.match(renderFrames[0], /pi-fast\s+ON\s+AUTO/)
+  assert.match(renderFrames[1], /pi-fast\s+OFF\s+MANUAL/)
+  assert.match(renderFrames[2], /pi-fast\s+ON\s+AUTO/)
+  assert.match(renderFrames[3], /Saved whitelist \(1\)/)
+  assert.deepEqual(
+    editors.map(({ prefilled }) => prefilled),
+    [config.whitelist.join('\n'), config.blacklist.join('\n')],
+  )
+  assert.equal(fast.request(), undefined)
+  const extensions = join(fast.dir, 'extensions')
+  const files = await readdir(extensions)
+  const backup = files.filter((path) => path.endsWith('.bak'))
+  assert.equal(backup.length, 1)
+  assert.deepEqual(
+    JSON.parse(await readFile(join(extensions, backup[0]), 'utf8')),
+    original,
+  )
+  assert.deepEqual(
+    JSON.parse(await readFile(join(extensions, 'fast-mode.json'), 'utf8')),
+    {
+      ...original,
+      whitelist: ['openai-codex/gpt-6-*'],
+    },
+  )
 })

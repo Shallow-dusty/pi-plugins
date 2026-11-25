@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import * as ExtensionConfig from '@pi-plugins/shared/config'
 import { Data, Effect, Option, Predicate, Record, Schema } from 'effect'
+import { showFastPanel } from './panel.ts'
 import { compileModelPatterns, resolvePolicy, type FastMode } from './policy.ts'
+import { saveRuleList } from './rules-config.ts'
 import { clearStatus, publishStatus } from './status.ts'
 
 const EXTENSION_ID = 'fast-mode'
@@ -38,6 +40,16 @@ const FastModeConfig = Schema.Struct({
   showStatus: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 })
 
+const decodeConfig = Schema.decodeUnknownSync(FastModeConfig)
+
+function startupMode(config: typeof FastModeConfig.Type): FastMode {
+  return config.mode ?? (config.whitelist || config.blacklist ? 'auto' : 'manual')
+}
+
+function modelKey(model: ExtensionContext['model']): string | undefined {
+  return model && `${model.provider}/${model.id}`
+}
+
 type Applicator = (
   payload: Record<string, unknown>,
   model: NonNullable<ExtensionContext['model']>,
@@ -63,7 +75,7 @@ function applyOpenAIPriorityTier(
 }
 
 export default function fastMode(pi: ExtensionAPI) {
-  const defaults = Schema.decodeUnknownSync(FastModeConfig)({})
+  const defaults = decodeConfig({})
   let config = defaults
   let mode: FastMode = 'manual'
   let manualEnabled = false
@@ -71,14 +83,26 @@ export default function fastMode(pi: ExtensionAPI) {
   let blacklist = compileModelPatterns([])
   let models = compileModelPatterns(config.models)
 
+  function applyConfig(next: typeof FastModeConfig.Type): void {
+    config = next
+    whitelist = compileModelPatterns(config.whitelist ?? [])
+    blacklist = compileModelPatterns(config.blacklist ?? [])
+    models = compileModelPatterns(config.models)
+  }
+
   function decisionFor(model: ExtensionContext['model']) {
-    return resolvePolicy(
-      mode,
-      manualEnabled,
-      whitelist,
-      blacklist,
-      model && `${model.provider}/${model.id}`,
-    )
+    return resolvePolicy(mode, manualEnabled, whitelist, blacklist, modelKey(model))
+  }
+
+  function setManual(ctx: ExtensionContext, enabled: boolean) {
+    manualEnabled = enabled
+    mode = 'manual'
+    updateStatus(ctx)
+  }
+
+  function setMode(ctx: ExtensionContext, next: FastMode) {
+    mode = next
+    updateStatus(ctx)
   }
 
   function checkEligibility(model: ExtensionContext['model']): Eligibility {
@@ -119,29 +143,37 @@ export default function fastMode(pi: ExtensionAPI) {
   }
 
   function notifyState(ctx: ExtensionContext): void {
-    const model = ctx.model
-    const key = model ? `${model.provider}/${model.id}` : 'no model'
-    const { enabled, reason } = decisionFor(model)
-    const eligibility = checkEligibility(model)
-    const state = Eligibility.$is('Ineligible')(eligibility)
-      ? `unavailable: ${eligibility.message}`
-      : enabled
-        ? 'on'
-        : 'off'
-    ctx.ui.notify(`Fast (${mode}): ${state} · ${key} · ${reason}`, 'info')
+    const { key, state, reason, unavailable } = snapshot(ctx)
+    const status = unavailable ? `unavailable: ${unavailable}` : state
+    ctx.ui.notify(`Fast (${mode}): ${status} · ${key} · ${reason}`, 'info')
+  }
+
+  function snapshot(ctx: ExtensionContext) {
+    const { enabled, reason } = decisionFor(ctx.model)
+    const eligibility = checkEligibility(ctx.model)
+    const unavailable = Eligibility.$is('Ineligible')(eligibility)
+      ? eligibility.message
+      : undefined
+    const state = unavailable ? 'unavailable' : enabled ? 'on' : 'off'
+    return {
+      key: modelKey(ctx.model) ?? 'no model',
+      mode,
+      startupMode: startupMode(config),
+      state,
+      unavailable,
+      reason,
+      whitelist: config.whitelist ?? [],
+      blacklist: config.blacklist ?? [],
+    } as const
   }
 
   pi.on('session_start', async (_event, ctx) => {
-    config = await ExtensionConfig.load(ctx, FastModeConfig, EXTENSION_ID, defaults)
-    whitelist = compileModelPatterns(config.whitelist ?? [])
-    blacklist = compileModelPatterns(config.blacklist ?? [])
-    models = compileModelPatterns(config.models)
+    applyConfig(
+      await ExtensionConfig.load(ctx, FastModeConfig, EXTENSION_ID, defaults),
+    )
     const flag = pi.getFlag('fast') === true
     manualEnabled = flag || config.enabled
-    mode = flag
-      ? 'manual'
-      : (config.mode ?? (config.whitelist || config.blacklist ? 'auto' : 'manual'))
-    updateStatus(ctx)
+    setMode(ctx, flag ? 'manual' : startupMode(config))
   })
 
   pi.on('model_select', (_event, ctx) => {
@@ -179,34 +211,51 @@ export default function fastMode(pi: ExtensionAPI) {
   })
 
   pi.registerCommand('fast', {
-    description: 'Choose automatic or manual Fast (priority inference)',
+    description: 'Open the pi-fast panel or control priority inference',
     getArgumentCompletions: (prefix) => {
-      const items = ['auto', 'manual', 'on', 'off', 'status']
+      const items = ['auto', 'manual', 'on', 'off', 'toggle', 'status']
         .filter((arg) => arg.startsWith(prefix))
         .map((arg) => ({ value: arg, label: arg }))
       return items.length > 0 ? items : null
     },
     handler: async (args, ctx) => {
       const cmd = args.trim().toLowerCase()
+      const toggle = () => setManual(ctx, !decisionFor(ctx.model).enabled)
       switch (cmd) {
         case '':
+          if (ctx.hasUI && ctx.mode === 'tui') {
+            await showFastPanel(ctx, {
+              state: () => {
+                const current = snapshot(ctx)
+                return { ...current, reason: current.unavailable ?? current.reason }
+              },
+              toggle,
+              switchMode: () => setMode(ctx, mode === 'auto' ? 'manual' : 'auto'),
+              editRules: async (list, patterns) => {
+                applyConfig(await saveRuleList(list, patterns, decodeConfig))
+                updateStatus(ctx)
+              },
+            })
+            return
+          }
+          break
+        case 'toggle':
+          toggle()
+          break
         case 'on':
         case 'off':
-          manualEnabled = cmd === '' ? !decisionFor(ctx.model).enabled : cmd === 'on'
-          mode = 'manual'
+          setManual(ctx, cmd === 'on')
           break
         case 'auto':
         case 'manual':
-          mode = cmd
+          setMode(ctx, cmd)
           break
         case 'status':
-          notifyState(ctx)
-          return
+          break
         default:
-          ctx.ui.notify('Usage: /fast [auto|manual|on|off|status]', 'warning')
+          ctx.ui.notify('Usage: /fast [auto|manual|on|off|toggle|status]', 'warning')
           return
       }
-      updateStatus(ctx)
       notifyState(ctx)
     },
   })

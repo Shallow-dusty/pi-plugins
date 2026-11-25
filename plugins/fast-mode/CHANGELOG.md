@@ -1,5 +1,10 @@
 # pi-fast
 
+## 0.2.1
+
+- Open a native overlay with `/fast` to inspect the current decision, switch modes, and edit model rules.
+- Move the direct session toggle to `/fast toggle`.
+
 ## 0.2.0
 
 - Add auto/manual session modes and glob-based model whitelists and blacklists.
