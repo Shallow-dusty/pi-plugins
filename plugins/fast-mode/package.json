@@ -1,6 +1,7 @@
 {
   "name": "@pi-plugins/fast-mode",
-  "version": "0.1.16",
+  "version": "0.1.17-shallow.0",
+  "private": true,
   "description": "Fast service-tier extension for pi-agent.",
   "keywords": [
     "fast",
@@ -11,19 +12,20 @@
     "priority",
     "service-tier"
   ],
-  "homepage": "https://github.com/k3dom/pi-plugins/tree/main/plugins/fast-mode#readme",
+  "homepage": "https://github.com/Shallow-dusty/pi-plugins/tree/fast-mode/model-policy/plugins/fast-mode#readme",
   "bugs": {
-    "url": "https://github.com/k3dom/pi-plugins/issues"
+    "url": "https://github.com/Shallow-dusty/pi-plugins/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/k3dom/pi-plugins.git",
+    "url": "git+https://github.com/Shallow-dusty/pi-plugins.git",
     "directory": "plugins/fast-mode"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "type": "module",
   "types": "./dist/index.d.mts",
@@ -31,15 +33,13 @@
     ".": "./dist/index.mjs",
     "./package.json": "./package.json"
   },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "prepack": "pnpm run build",
     "build": "tsdown",
     "check": "pnpm run lint && pnpm run check-types && pnpm run format:check",
     "check-types": "tsc -b",
     "lint": "oxlint",
+    "test": "node --test",
     "format": "oxfmt",
     "format:check": "oxfmt --check"
   },

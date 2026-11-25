@@ -1,39 +1,47 @@
 # `@pi-plugins/fast-mode`
 
 Request priority inference for selected models in
-[pi](https://github.com/earendil-works/pi) with a session toggle.
+[pi](https://github.com/earendil-works/pi), automatically by model or with a manual
+session toggle. This fork integrates with the oh-my-line footer.
 
 ## Install
 
-```bash
-pi install npm:@pi-plugins/fast-mode
-```
-
-To try it for one session without changing your settings:
+From the fork's monorepo root, build and install the local package. If the upstream
+npm package is configured, remove that declaration first to avoid two `/fast`
+commands.
 
 ```bash
-pi -e npm:@pi-plugins/fast-mode
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @pi-plugins/fast-mode build
+pi remove npm:@pi-plugins/fast-mode@0.1.16 # only if installed at this pin
+pi install "$PWD/plugins/fast-mode"
 ```
+
+Run `/reload` in an existing Pi session.
 
 ## Usage
 
 Use `/fast` to control fast mode for the current session:
 
-| Command        | Action                                                                       |
-| -------------- | ---------------------------------------------------------------------------- |
-| `/fast`        | Toggle fast mode.                                                            |
-| `/fast on`     | Enable fast mode.                                                            |
-| `/fast off`    | Disable fast mode.                                                           |
-| `/fast status` | Show the current state and explain whether it applies to the selected model. |
+| Command        | Action                                                                    |
+| -------------- | ------------------------------------------------------------------------- |
+| `/fast`        | Flip the current policy decision and switch to manual mode.               |
+| `/fast on`     | Switch to manual mode, on.                                                |
+| `/fast off`    | Switch to manual mode, off.                                               |
+| `/fast auto`   | Follow the configured lists as you switch models.                         |
+| `/fast manual` | Return to the last manual setting (initially `enabled` in the config).    |
+| `/fast status` | Show the mode, effective state and matching rule or reason for the model. |
 
-To start a session with fast mode enabled:
+To start a session in manual mode with Fast on:
 
 ```bash
 pi --fast
 ```
 
-Fast mode applies only to models listed in the configuration. Other models are left
-unchanged. A `[fast mode]` indicator appears above the editor while active.
+Only models covered by `models` and a supported API are eligible. When active, Fast
+publishes `ext:fast-mode` via `oh-my-line.segments.v1`, next to the model by default,
+and uses Pi's native status as a fallback without oh-my-line. Manual changes last
+until a new session, resume, or `/reload`.
 
 ## Supported providers
 
@@ -76,11 +84,31 @@ Optionally create `<agent-dir>/extensions/fast-mode.json`, typically
 }
 ```
 
-| Setting      | Description                                                                                                 |
-| ------------ | ----------------------------------------------------------------------------------------------------------- |
-| `enabled`    | Enable fast mode at session start. `/fast` changes only the current session and does not write to the file. |
-| `models`     | The exact `provider/model-id` pairs fast mode applies to.                                                   |
-| `showStatus` | Show the status indicator while fast mode is active.                                                        |
+| Setting      | Description                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
+| `enabled`    | Initial manual on/off state. Existing configs using only `enabled` keep their behavior.                 |
+| `mode`       | `auto` or `manual`. If omitted, supplying either list selects `auto`; otherwise `manual`.               |
+| `models`     | Eligible `provider/model-id` keys or globs. Applies in both modes.                                      |
+| `whitelist`  | Auto mode turns Fast on for matching eligible models. Unmatched models stay off.                        |
+| `blacklist`  | Auto mode turns Fast off for matching models, even if also whitelisted. Manual mode ignores both lists. |
+| `showStatus` | Show the footer segment while Fast is active.                                                           |
+
+Patterns match the full `provider/model-id` key (case-insensitive); `*` matches any
+number of characters, and `?` matches one. Use `"whitelist": ["*"]` to turn Fast on
+for all eligible models except the blacklist. To set defaults without changing the
+existing eligibility list, add these fields to your config:
+
+```json
+{
+  "mode": "auto",
+  "whitelist": ["cpa/gpt-6.2-sol", "openai-codex/gpt-6-*"],
+  "blacklist": ["openai-codex/gpt-6-luna"]
+}
+```
+
+Ensure that any custom provider keys you whitelist are also eligible via `models`.
+When active, the extension adds `service_tier: "priority"` to supported requests that
+do not already set a tier. When off, it leaves the payload unchanged.
 
 ## Notes
 
